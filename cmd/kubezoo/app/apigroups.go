@@ -41,9 +41,30 @@ import (
 	"k8s.io/kubernetes/pkg/apis/rbac"
 	resourceapi "k8s.io/kubernetes/pkg/apis/resource"
 	"k8s.io/kubernetes/pkg/apis/storage"
+	"k8s.io/kubernetes/pkg/printers"
+	printersinternal "k8s.io/kubernetes/pkg/printers/internalversion"
+	printerstorage "k8s.io/kubernetes/pkg/printers/storage"
 
 	"github.com/fivetime/kubezoo-gateway/pkg/apiconfig"
 )
+
+// publishedClassTableConvertor gives `kubectl get` the columns the real
+// apiserver prints for a published cluster-scoped class -- for a StorageClass:
+// PROVISIONER, RECLAIMPOLICY, VOLUMEBINDINGMODE, ALLOWVOLUMEEXPANSION.
+//
+// ⛔ Without it these resources fall back to kubectl's default table: NAME and
+// CREATED AT, nothing else. Not cosmetic -- a tenant choosing a storage class
+// needs to see whether a volume is deleted or retained and whether it can be
+// expanded, which is exactly what the default table drops. The data was never
+// hidden (`-o yaml` always had it), but a tenant reads `kubectl get sc` to
+// decide, not the YAML.
+//
+// One generator serves every published class: printersinternal.AddHandlers
+// registers a printer per type, and a type with no handler keeps the default
+// table, so sharing it is safe.
+var publishedClassTableConvertor = printerstorage.TableConvertor{
+	TableGenerator: printers.NewTableGenerator().With(printersinternal.AddHandlers),
+}
 
 var legacyGroup = apiconfig.APIGroupConfig{
 	Group: coreapiv1.GroupName,
@@ -796,6 +817,7 @@ var nonLegacyGroups = []apiconfig.APIGroupConfig{
 					NamespaceScoped: false,
 					NewFunc:         func() runtime.Object { return &networking.IngressClass{} },
 					NewListFunc:     func() runtime.Object { return &networking.IngressClassList{} },
+					TableConvertor:  publishedClassTableConvertor,
 				},
 			},
 		},
@@ -950,6 +972,7 @@ var nonLegacyGroups = []apiconfig.APIGroupConfig{
 					NamespaceScoped: false,
 					NewFunc:         func() runtime.Object { return &storage.StorageClass{} },
 					NewListFunc:     func() runtime.Object { return &storage.StorageClassList{} },
+					TableConvertor:  publishedClassTableConvertor,
 				},
 				// Same storage, same reasoning, different default: nothing is
 				// published unless an operator labels it, and naming an
@@ -964,6 +987,7 @@ var nonLegacyGroups = []apiconfig.APIGroupConfig{
 					NamespaceScoped: false,
 					NewFunc:         func() runtime.Object { return &storage.VolumeAttributesClass{} },
 					NewListFunc:     func() runtime.Object { return &storage.VolumeAttributesClassList{} },
+					TableConvertor:  publishedClassTableConvertor,
 				},
 			},
 		},
@@ -1019,6 +1043,7 @@ var nonLegacyGroups = []apiconfig.APIGroupConfig{
 					NamespaceScoped: false,
 					NewFunc:         func() runtime.Object { return &resourceapi.DeviceClass{} },
 					NewListFunc:     func() runtime.Object { return &resourceapi.DeviceClassList{} },
+					TableConvertor:  publishedClassTableConvertor,
 				},
 			},
 		},
