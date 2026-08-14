@@ -63,6 +63,32 @@ func TestATenantDoesNotSeeThePlatform(t *testing.T) {
 	}
 }
 
+// TestTheTenantContractSubdomainIsNotHidden pins the other edge of the pattern:
+// `dataplane.kubezoo.io/*` is the tenant-writable contract surface
+// (docs/dataplane-openstack-cn.md in kubezoo-contract) -- a tenant references a
+// network port claim there, the data plane answers there. The platform pattern
+// is anchored (`^kubezoo\.io/`) so the subdomain passes through, and that is
+// load-bearing: widen the pattern and the whole port-handoff contract dies
+// silently, in both directions, with nothing logging a thing.
+func TestTheTenantContractSubdomainIsNotHidden(t *testing.T) {
+	svc := svcMeta(
+		map[string]string{"dataplane.kubezoo.io/port-claims": "db-0"},
+		map[string]string{"dataplane.kubezoo.io/pool": "a"},
+	)
+	h := hidden(t)
+	h.Strip(svc)
+	if svc.Annotations["dataplane.kubezoo.io/port-claims"] != "db-0" ||
+		svc.Labels["dataplane.kubezoo.io/pool"] != "a" {
+		t.Errorf("the tenant-writable contract subdomain was stripped: %v %v",
+			svc.Annotations, svc.Labels)
+	}
+
+	h.Restore(svc, svcMeta(nil, nil))
+	if svc.Annotations["dataplane.kubezoo.io/port-claims"] != "db-0" {
+		t.Errorf("the tenant's own contract annotation was dropped on write: %v", svc.Annotations)
+	}
+}
+
 // TestAReadModifyWriteDoesNotEraseThePlatform is the half that is easy to leave
 // out, and leaving it out is a data-loss bug wearing the costume of a privacy
 // feature.
